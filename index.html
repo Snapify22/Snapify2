@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snapify - OCR & Translation App</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+        .drop-area {
+            border: 2px dashed #007bff;
+            padding: 20px;
+            width: 300px;
+            margin: auto;
+            cursor: pointer;
+            background-color: #fff;
+            transition: background-color 0.3s ease;
+        }
+        .drop-area:hover {
+            background-color: #e9ecef;
+        }
+        #progressBar {
+            width: 100%;
+            display: none;
+            margin-top: 10px;
+        }
+        textarea {
+            width: 80%;
+            height: 100px;
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            background-color: #fff;
+            resize: none;
+        }
+        .hidden {
+            display: none;
+        }
+        .hidden-video {
+            display: none;
+        }
+        video#cameraView {
+            display: none;
+            margin-top: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+        video#cameraView.show {
+            display: block;
+        }
+        button {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            margin-top: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        select {
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            background-color: #fff;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <input type="file" id="fileInput" class="hidden">
+    <h2>Upload an Image for OCR</h2>
+    <div class="drop-area" id="drop-area">Drag & Drop File Here or Click to Upload</div>
+    <input type="file" id="fileInput" class="hidden">
+    <progress id="progressBar" value="0" max="100"></progress>
+
+    <h3>Extracted Text:</h3>
+    <textarea id="extractedText" title="Extracted Text" placeholder="Extracted text will appear here"></textarea>
+    <button onclick="speakText('extractedText')">Speak Extracted Text</button>
+
+    <h3>Translate Text:</h3>
+    <select id="languageSelect" title="Select Language">
+        <option value="en">English</option>
+        <option value="sw">Swahili</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+    </select>
+    <button onclick="translateText()">Translate</button>
+    
+    <h3>Translation:</h3>
+    <textarea id="translatedText" title="Translated Text" placeholder="Translation will appear here"></textarea>
+    <button onclick="speakText('translatedText')">Speak Translated Text</button>
+
+    <h3>Convert Speech to Text:</h3>
+    <input type="file" id="audioInput" accept="audio/*" title="Upload audio file">
+    <button onclick="startSpeechToText()">Start Speaking</button>
+
+    <h3>Live OCR:</h3>
+    <button onclick="startLiveOCR()">📷 Live Scan</button>
+    <button onclick="toggleCamera()">🔄 Toggle Camera</button>
+    <video id="cameraView" autoplay playsinline class="hidden-video"></video>
+    <button onclick="captureImage()">Snap Picture</button>
+    <textarea id="liveText" readonly title="Live OCR Text" placeholder="Live OCR text will appear here"></textarea>
+
+    <script>
+        document.getElementById("drop-area").addEventListener("click", () => document.getElementById("fileInput").click());
+        document.getElementById("fileInput").addEventListener("change", uploadFile);
+
+        let currentStream;
+        let useFrontCamera = true;
+
+        function uploadFile() {
+            let file = document.getElementById("fileInput").files[0];
+            if (!file) return;
+
+            let formData = new FormData();
+            formData.append("file", file);
+
+            document.getElementById("progressBar").style.display = "block";
+
+            axios.post("/upload", formData, {
+                onUploadProgress: function(progressEvent) {
+                    let percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    document.getElementById("progressBar").value = percent;
+                }
+            }).then(response => {
+                document.getElementById("extractedText").value = response.data.text;
+            }).catch(error => {
+                alert("Error: " + error.response.data.error);
+            });
+        }
+
+        function translateText() {
+            let text = document.getElementById("extractedText").value;
+            let targetLang = document.getElementById("languageSelect").value;
+
+            axios.post("/translate", { text: text, target_lang: targetLang })
+                .then(response => {
+                    document.getElementById("translatedText").value = response.data.translated_text;
+                }).catch(error => {
+                    alert("Translation failed: " + error.response.data.error);
+                });
+        }
+
+        function startSpeechToText() {
+            let audioFile = document.getElementById("audioInput").files[0];
+            if (!audioFile) return;
+
+            let formData = new FormData();
+            formData.append("audio", audioFile);
+
+            axios.post("/speech_to_text", formData)
+                .then(response => {
+                    document.getElementById("extractedText").value = response.data.text;
+                }).catch(error => {
+                    alert("Speech recognition failed: " + error.response.data.error);
+                });
+        }
+
+        function startLiveOCR() {
+            const video = document.getElementById('cameraView');
+            video.classList.add('show');
+
+            const constraints = {
+                video: {
+                    facingMode: useFrontCamera ? 'user' : 'environment'
+                }
+            };
+
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => {
+                    currentStream = stream;
+                    video.srcObject = stream;
+                })
+                .catch(err => {
+                    console.error("Error accessing camera: ", err);
+                });
+        }
+
+        function toggleCamera() {
+            useFrontCamera = !useFrontCamera;
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            startLiveOCR();
+        }
+
+        function captureImage() {
+            const video = document.getElementById('cameraView');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/jpeg').split(',')[1];
+
+            axios.post('/capture_image', { image: imageData })
+                .then(response => {
+                    document.getElementById('liveText').value = response.data.text;
+                })
+                .catch(err => {
+                    console.error("Error capturing image: ", err);
+                });
+        }
+
+        function speakText(elementId) {
+            let text = document.getElementById(elementId).value;
+            axios.post('/text_to_speech', { text: text })
+                .then(response => {
+                    let audio = new Audio(response.data.audio_url);
+                    audio.play();
+                })
+                .catch(error => {
+                    alert("Text-to-speech failed: " + error.response.data.error);
+                });
+        }
+    </script>
+</body>
+</html>
